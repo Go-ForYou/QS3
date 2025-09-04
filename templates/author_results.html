@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="layout">
+	<aside class="sidenav teal">
+		<a href="{{ url_for('author_contracts') }}">我的签约</a>
+		<a href="{{ url_for('author_apply') }}">签约申请</a>
+		<a href="{{ url_for('author_results') }}" class="active">申请结果</a>
+		<a href="{{ url_for('author_notifications') }}">站内通知</a>
+	</aside>
+	<section class="main">
+		<h1>申请结果</h1>
+		<ul>
+			{% for a in applications %}
+				<li class="card">
+					《{{ a[1] }}》 - {{ a[2] }} - {{ a[3] }}
+					<span>状态：{{ a[4] }}</span>
+					{% if a[4]=='rejected' and a[5] %}<span>（原因：{{ a[5] }}）</span>{% endif %}
+					<span>提交时间：{{ a[6] }}</span>
+				</li>
+			{% else %}
+				<li>暂无申请</li>
+			{% endfor %}
+		</ul>
+	</section>
+</div>
+{% endblock %}

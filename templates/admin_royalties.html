@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="layout">
+	<aside class="sidenav blue">
+		<a href="{{ url_for('admin_books') }}">已签约书籍</a>
+		<a href="{{ url_for('admin_royalties') }}" class="active">保底稿费管理</a>
+		<a href="{{ url_for('admin_apps') }}">申请审核</a>
+	</aside>
+	<section class="main">
+		<h1>保底稿费管理</h1>
+		<form method="post" class="form card">
+			<label>书籍
+				<select name="book_id" required>
+					{% for b in books %}
+						{% if b[3]=='保底' %}
+							<option value="{{ b[0] }}">#{{ b[0] }} - {{ b[1] }}（{{ b[2] }}）</option>
+						{% endif %}
+					{% endfor %}
+				</select>
+			</label>
+			<label>月份<input name="month" value="{{ month }}" placeholder="YYYY-MM"></label>
+			<label>金额<input name="amount" type="number" step="0.01" required></label>
+			<button type="submit">保存</button>
+		</form>
+	</section>
+</div>
+{% endblock %}

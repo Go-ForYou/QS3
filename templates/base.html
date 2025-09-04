@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{{ title or '后台系统' }}</title>
+	<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="theme-{{ session.get('role','guest') }}">
+	<nav class="nav top">
+		<div class="brand">{% if session.get('role')=='admin' %}管理后台{% else %}作者后台{% endif %}</div>
+		<div class="links">
+			{% if session.get('username') %}
+				<span>你好，{{ session.get('username') }}</span>
+				<a href="{{ url_for('logout') }}">退出</a>
+			{% endif %}
+		</div>
+	</nav>
+	<main class="container">
+		{% with messages = get_flashed_messages(with_categories=true) %}
+			{% if messages %}
+				<ul class="flashes">
+					{% for category, message in messages %}
+						<li class="{{ category }} card">{{ message }}</li>
+					{% endfor %}
+				</ul>
+			{% endif %}
+		{% endwith %}
+		{% block content %}{% endblock %}
+	</main>
+</body>
+</html>
+

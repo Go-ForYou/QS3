@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="layout">
+	<aside class="sidenav blue">
+		<a href="{{ url_for('admin_books') }}" class="active">已签约书籍</a>
+		<a href="{{ url_for('admin_royalties') }}">保底稿费管理</a>
+		<a href="{{ url_for('admin_apps') }}">申请审核</a>
+	</aside>
+	<section class="main">
+		<h1>已签约书籍</h1>
+		<ul>
+			{% for b in books %}
+				<li class="card">
+					《{{ b[1] }}》 — {{ b[3] }}{% if b[3]=='买断' %}（买断稿费：{{ b[4] and ('¥ ' ~ ('%.2f'|format(b[4]))) or '未设置' }}）{% endif %} — 作者：{{ b[2] }}
+					<span class="muted">（签约时间：{{ (b[5] or '')[:10] }}）</span>
+					<form method="post" action="{{ url_for('admin_delete_book') }}" class="inline" style="margin-left:8px">
+						<input type="hidden" name="book_id" value="{{ b[0] }}">
+						<button type="submit">删除</button>
+					</form>
+				</li>
+			{% else %}
+				<li>暂无书籍</li>
+			{% endfor %}
+		</ul>
+	</section>
+</div>
+{% endblock %}

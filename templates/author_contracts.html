@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="layout">
+	<aside class="sidenav teal">
+		<a href="{{ url_for('author_contracts') }}" class="active">我的签约</a>
+		<a href="{{ url_for('author_apply') }}">签约申请</a>
+		<a href="{{ url_for('author_results') }}">申请结果</a>
+		<a href="{{ url_for('author_notifications') }}">站内通知</a>
+	</aside>
+	<section class="main">
+		<h1>我的签约</h1>
+		<p>当前月份：{{ month }}</p>
+		<ul>
+			{% for b in books %}
+				<li class="card">
+					《{{ b[1] }}》 — {{ b[2] }}
+					{% if b[2] == '买断' %}
+						<span>买断稿费：{{ b[3] and ('¥ ' ~ ('%.2f'|format(b[3]))) or '未设置' }}</span>
+					{% else %}
+						<span>当月稿费：¥ {{ '%.2f'|format(bookIdToRoyalty.get(b[0], 0)) }}</span>
+					{% endif %}
+				</li>
+			{% else %}
+				<li>暂无签约书籍</li>
+			{% endfor %}
+		</ul>
+
+		<h2>保底签约历史记录</h2>
+		<ul>
+			{% for b in books %}
+				{% if b[2]=='保底' and history.get(b[0]) %}
+					<li class="card">
+						《{{ b[1] }}》
+						<ul>
+							{% for m, amt in history.get(b[0]) %}
+								<li>{{ m }}：¥ {{ '%.2f'|format(amt) }}</li>
+							{% endfor %}
+						</ul>
+					</li>
+				{% endif %}
+			{% else %}
+				<li>暂无历史记录</li>
+			{% endfor %}
+		</ul>
+	</section>
+</div>
+{% endblock %}

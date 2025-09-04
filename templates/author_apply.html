@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="layout">
+	<aside class="sidenav teal">
+		<a href="{{ url_for('author_contracts') }}">我的签约</a>
+		<a href="{{ url_for('author_apply') }}" class="active">签约申请</a>
+		<a href="{{ url_for('author_results') }}">申请结果</a>
+		<a href="{{ url_for('author_notifications') }}">站内通知</a>
+	</aside>
+	<section class="main">
+		<h1>签约申请</h1>
+		<form method="post" class="form card">
+			<label>书名<input name="title" required></label>
+			<label>作者笔名<input name="pen_name" required></label>
+			<label>签约方式
+				<select name="contract_type" required>
+					<option value="保底">保底</option>
+					<option value="买断">买断</option>
+				</select>
+			</label>
+			<button type="submit">提交申请</button>
+		</form>
+	</section>
+</div>
+{% endblock %}

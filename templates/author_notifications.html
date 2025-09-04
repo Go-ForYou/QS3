@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="layout">
+	<aside class="sidenav teal">
+		<a href="{{ url_for('author_contracts') }}">我的签约</a>
+		<a href="{{ url_for('author_apply') }}">签约申请</a>
+		<a href="{{ url_for('author_results') }}">申请结果</a>
+		<a href="{{ url_for('author_notifications') }}" class="active">站内通知</a>
+	</aside>
+	<section class="main">
+		<h1>站内通知</h1>
+		<form method="post" action="{{ url_for('author_mark_notifications_read') }}" class="inline">
+			<button type="submit">全部标记为已读</button>
+		</form>
+		<ul>
+			{% for n in notifications %}
+				<li class="card">
+					{% if not n[3] %}<span style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:50%;margin-right:8px" title="未读"></span>{% else %}<span style="display:inline-block;width:10px;height:10px;background:#94a3b8;border-radius:50%;margin-right:8px" title="已读"></span>{% endif %}
+					{{ n[1] }}（{{ n[2] }}）
+					{% if not n[3] %}
+						<form method="post" action="{{ url_for('author_mark_notification_one') }}" class="inline" style="margin-left:8px">
+							<input type="hidden" name="id" value="{{ n[0] }}">
+							<button type="submit">标记已读</button>
+						</form>
+					{% endif %}
+				</li>
+			{% else %}
+				<li>暂无通知</li>
+			{% endfor %}
+		</ul>
+	</section>
+</div>
+{% endblock %}

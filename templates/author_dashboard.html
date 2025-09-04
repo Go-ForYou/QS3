@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>作者中心</h1>
+
+<h2>提交签约申请</h2>
+<form method="post" action="{{ url_for('author_apply') }}" class="form">
+	<label>书名<input name="title" required></label>
+	<label>作者笔名<input name="pen_name" required></label>
+	<label>签约方式
+		<select name="contract_type" required>
+			<option value="保底">保底</option>
+			<option value="买断">买断</option>
+		</select>
+	</label>
+	<button type="submit">提交申请</button>
+</form>
+
+<h2>我的申请</h2>
+<ul>
+	{% for a in applications %}
+		<li>
+			《{{ a[1] }}》 - {{ a[2] }} - {{ a[3] }}
+			<span>状态：{{ a[4] }}</span>
+			{% if a[4]=='rejected' and a[5] %}<span>（原因：{{ a[5] }}）</span>{% endif %}
+			<span>提交时间：{{ a[6] }}</span>
+		</li>
+	{% else %}
+		<li>暂无申请</li>
+	{% endfor %}
+</ul>
+
+<h2>{{ month }} 稿费</h2>
+<p>¥ {{ '%.2f'|format(amount) }}</p>
+
+<h2>签约书籍</h2>
+<ul>
+	{% for b in books %}
+		<li>#{{ b[0] }} - {{ b[1] }}</li>
+	{% else %}
+		<li>暂无书籍</li>
+	{% endfor %}
+</ul>
+
+<h2>站内通知</h2>
+<form method="post" action="{{ url_for('author_mark_notifications_read') }}">
+	<button type="submit">全部标记为已读</button>
+</form>
+<ul>
+	{% for n in notifications %}
+		<li{% if not n[3] %} style="font-weight:bold"{% endif %}>{{ n[1] }}（{{ n[2] }}）</li>
+	{% else %}
+		<li>暂无通知</li>
+	{% endfor %}
+</ul>
+{% endblock %}
+

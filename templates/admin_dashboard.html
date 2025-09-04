@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>管理员后台</h1>
+
+<section>
+	<h2>签约申请审核</h2>
+	<ul>
+		{% for a in apps %}
+			<li>
+				#{{ a[0] }} 作者：{{ a[1] }} —— 《{{ a[2] }}》/{{ a[3] }}/{{ a[4] }}
+				<span>状态：{{ a[5] }}</span>
+				{% if a[5]=='pending' %}
+					<form method="post" style="display:inline">
+						<input type="hidden" name="action" value="approve_app">
+						<input type="hidden" name="app_id" value="{{ a[0] }}">
+						{% if a[4]=='买断' %}
+							<input name="buyout_amount" type="number" step="0.01" placeholder="买断稿费" required>
+						{% endif %}
+						<button type="submit">同意签约</button>
+					</form>
+					<form method="post" style="display:inline">
+						<input type="hidden" name="action" value="reject_app">
+						<input type="hidden" name="app_id" value="{{ a[0] }}">
+						<input name="reason" placeholder="拒绝原因" required>
+						<button type="submit">拒绝</button>
+					</form>
+				{% elif a[5]=='rejected' and a[6] %}
+					<span>（原因：{{ a[6] }}）</span>
+				{% endif %}
+				<span>提交：{{ a[7] }}</span>
+			</li>
+		{% else %}
+			<li>暂无申请</li>
+		{% endfor %}
+	</ul>
+</section>
+
+<section>
+	<h2>按书设置月度稿费（保底）</h2>
+	<form method="post">
+		<input type="hidden" name="action" value="set_book_royalty">
+		<label>书籍
+			<select name="book_id" required>
+				{% for b in books %}
+					<option value="{{ b[0] }}">#{{ b[0] }} - {{ b[1] }}（{{ b[2] }}）</option>
+				{% endfor %}
+			</select>
+		</label>
+		<label>月份<input name="month" value="{{ month }}" placeholder="YYYY-MM"></label>
+		<label>金额<input name="amount" type="number" step="0.01" required></label>
+		<button type="submit">保存</button>
+	</form>
+</section>
+
+<section>
+	<h2>添加书籍（可选）</h2>
+	<form method="post">
+		<input type="hidden" name="action" value="add_book">
+		<label>书名<input name="title" required></label>
+		<label>作者
+			<select name="author_id" required>
+				{% for a in authors %}
+					<option value="{{ a[0] }}">{{ a[1] }}</option>
+				{% endfor %}
+			</select>
+		</label>
+		<button type="submit">添加</button>
+	</form>
+</section>
+
+<section>
+	<h2>书籍列表（按作者分组）</h2>
+	<ul>
+		{% for b in books %}
+			<li>#{{ b[0] }} - {{ b[1] }}（作者：{{ b[2] }}）</li>
+		{% else %}
+			<li>暂无书籍</li>
+		{% endfor %}
+	</ul>
+</section>
+{% endblock %}
+
