@@ -47,12 +47,19 @@ def login_required(role=None):
 
 @app.route("/")
 def index():
-	role = session.get("role")
-	if role == "admin":
-		return redirect(url_for("admin_apps"))
-	elif role == "author":
-		return redirect(url_for("author_contracts"))
-	return redirect(url_for("login"))
+	try:
+		role = session.get("role")
+		if role == "admin":
+			return redirect(url_for("admin_apps"))
+		elif role == "author":
+			return redirect(url_for("author_contracts"))
+		else:
+			# 未登录用户重定向到登录页面
+			return redirect(url_for("login"))
+	except Exception as e:
+		app.logger.error(f"Index route error: {e}")
+		# 如果出现错误，直接显示登录页面
+		return redirect(url_for("login"))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -351,20 +358,31 @@ def admin_redirect():
 	return redirect(url_for("admin_apps"))
 
 
-@app.route('/static/<path:filename>')
-def static_files(filename):
-	return send_from_directory('static', filename)
+# 健康检查路由
+@app.route("/health")
+def health_check():
+	return {"status": "ok", "message": "应用运行正常"}, 200
+
+
 
 
 @app.errorhandler(404)
 def not_found(error):
+	app.logger.warning(f"404 error: {request.url} - {request.method}")
 	return render_template("404.html"), 404
 
 
 @app.errorhandler(500)
 def internal_error(error):
+	app.logger.error(f"500 error: {error}")
 	return render_template("500.html"), 500
 
 
+# Vercel兼容性配置
 if __name__ == "__main__":
-	app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+	# 在生产环境中禁用debug模式
+	debug_mode = os.getenv("FLASK_ENV") != "production"
+	app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=debug_mode)
+
+# 为Vercel导出应用实例
+# 这确保Vercel可以正确导入和运行应用
