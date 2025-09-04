@@ -2,7 +2,7 @@
 import os
 import sqlite3
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from functools import wraps
@@ -20,8 +20,13 @@ _initialized = False
 def ensure_db_once():
 	global _initialized
 	if not _initialized:
-		init_db()
-		_initialized = True
+		try:
+			init_db()
+			_initialized = True
+		except Exception as e:
+			app.logger.error(f"Database initialization failed: {e}")
+			flash("数据库初始化失败，请联系管理员", "error")
+			return render_template("500.html"), 500
 
 
 def login_required(role=None):
@@ -55,16 +60,20 @@ def login():
 	if request.method == "POST":
 		username = request.form.get("username", "").strip()
 		password = request.form.get("password", "")
-		with get_db() as conn:
-			row = conn.execute("SELECT id, username, password_hash, role FROM users WHERE username=?", (username,)).fetchone()
-			if row and check_password_hash(row[2], password):
-				session["user_id"] = row[0]
-				session["username"] = row[1]
-				session["role"] = row[3]
-				flash("登录成功", "success")
-				return redirect(url_for("index"))
-			else:
-				flash("用户名或密码错误", "error")
+		try:
+			with get_db() as conn:
+				row = conn.execute("SELECT id, username, password_hash, role FROM users WHERE username=?", (username,)).fetchone()
+				if row and check_password_hash(row[2], password):
+					session["user_id"] = row[0]
+					session["username"] = row[1]
+					session["role"] = row[3]
+					flash("登录成功", "success")
+					return redirect(url_for("index"))
+				else:
+					flash("用户名或密码错误", "error")
+		except Exception as e:
+			app.logger.error(f"Login error: {e}")
+			flash("登录时发生错误，请稍后再试", "error")
 	return render_template("login.html")
 
 
@@ -340,6 +349,21 @@ def admin_books():
 @login_required(role="admin")
 def admin_redirect():
 	return redirect(url_for("admin_apps"))
+
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+	return send_from_directory('static', filename)
+
+
+@app.errorhandler(404)
+def not_found(error):
+	return render_template("404.html"), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+	return render_template("500.html"), 500
 
 
 if __name__ == "__main__":
