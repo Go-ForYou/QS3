@@ -11,7 +11,7 @@ from db import get_db, init_db
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
 _initialized = False
@@ -357,6 +357,16 @@ def admin_books():
 def admin_redirect():
 	return redirect(url_for("admin_apps"))
 
+
+# 静态文件路由 - 确保在Vercel上正确工作
+@app.route("/static/<path:filename>")
+def static_files(filename):
+	return send_from_directory(app.static_folder, filename)
+
+# 静态文件测试路由
+@app.route("/test-static")
+def test_static():
+	return send_from_directory('.', 'test_static.html')
 
 # 健康检查路由
 @app.route("/health")
