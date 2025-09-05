@@ -10,6 +10,39 @@ from functools import wraps
 # 使用混合数据库配置（本地SQLite，生产PostgreSQL）
 from db_hybrid import get_db, init_db, seed_admin_user, add_reviewer_field, POSTGRES_AVAILABLE
 
+def execute_query(conn, query, params=None):
+	"""执行数据库查询，兼容PostgreSQL和SQLite"""
+	if POSTGRES_AVAILABLE and IS_VERCEL:
+		# PostgreSQL查询
+		with conn.cursor() as cur:
+			cur.execute(query, params or ())
+			return cur.fetchone()
+	else:
+		# SQLite查询
+		return conn.execute(query, params or ()).fetchone()
+
+def execute_query_all(conn, query, params=None):
+	"""执行数据库查询并返回所有结果，兼容PostgreSQL和SQLite"""
+	if POSTGRES_AVAILABLE and IS_VERCEL:
+		# PostgreSQL查询
+		with conn.cursor() as cur:
+			cur.execute(query, params or ())
+			return cur.fetchall()
+	else:
+		# SQLite查询
+		return conn.execute(query, params or ()).fetchall()
+
+def execute_update(conn, query, params=None):
+	"""执行数据库更新操作，兼容PostgreSQL和SQLite"""
+	if POSTGRES_AVAILABLE and IS_VERCEL:
+		# PostgreSQL查询
+		with conn.cursor() as cur:
+			cur.execute(query, params or ())
+	else:
+		# SQLite查询
+		conn.execute(query, params or ())
+		conn.commit()
+
 load_dotenv()
 
 # 检测是否在Vercel环境中运行
@@ -77,7 +110,16 @@ def login():
 		password = request.form.get("password", "")
 		try:
 			with get_db() as conn:
-				row = conn.execute("SELECT id, username, password_hash, role FROM users WHERE username=?", (username,)).fetchone()
+				if conn is None:
+					flash("数据库连接失败", "error")
+					return render_template("login.html")
+				
+				# 使用兼容的查询函数
+				if POSTGRES_AVAILABLE and IS_VERCEL:
+					row = execute_query(conn, "SELECT id, username, password_hash, role FROM users WHERE username = %s", (username,))
+				else:
+					row = execute_query(conn, "SELECT id, username, password_hash, role FROM users WHERE username=?", (username,))
+				
 				if row and check_password_hash(row[2], password):
 					session["user_id"] = row[0]
 					session["username"] = row[1]
@@ -116,11 +158,9 @@ def register():
 			
 			# 检查用户名是否已存在
 			if POSTGRES_AVAILABLE and IS_VERCEL:
-				with conn.cursor() as cur:
-					cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
-					exists = cur.fetchone()
+				exists = execute_query(conn, "SELECT 1 FROM users WHERE username = %s", (username,))
 			else:
-				exists = conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+				exists = execute_query(conn, "SELECT 1 FROM users WHERE username=?", (username,))
 			
 			if exists:
 				flash("用户名已存在", "error")
@@ -128,17 +168,15 @@ def register():
 			
 			# 创建作者用户
 			if POSTGRES_AVAILABLE and IS_VERCEL:
-				with conn.cursor() as cur:
-					cur.execute(
-						"INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
-						(username, generate_password_hash(password), "author")
-					)
+				execute_update(conn, 
+					"INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
+					(username, generate_password_hash(password), "author")
+				)
 			else:
-				conn.execute(
+				execute_update(conn,
 					"INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
 					(username, generate_password_hash(password), "author")
 				)
-				conn.commit()
 			
 			flash("注册成功，请登录", "success")
 			return redirect(url_for("login"))
@@ -269,25 +307,23 @@ def admin_delete_book():
 def admin_apps():
 	with get_db() as conn:
 		if POSTGRES_AVAILABLE and IS_VERCEL:
-			with conn.cursor() as cur:
-				cur.execute("""
-					SELECT a.id, u.username, a.title, a.pen_name, a.contract_type, a.status, a.reject_reason, a.created_at, 
-						   r.username as reviewer_name
-					FROM applications a 
-					JOIN users u ON a.author_id=u.id 
-					LEFT JOIN users r ON a.reviewer_id=r.id 
-					ORDER BY a.id DESC
-				""")
-				apps = cur.fetchall()
-		else:
-			apps = conn.execute("""
+			apps = execute_query_all(conn, """
 				SELECT a.id, u.username, a.title, a.pen_name, a.contract_type, a.status, a.reject_reason, a.created_at, 
 					   r.username as reviewer_name
 				FROM applications a 
 				JOIN users u ON a.author_id=u.id 
 				LEFT JOIN users r ON a.reviewer_id=r.id 
 				ORDER BY a.id DESC
-			""").fetchall()
+			""")
+		else:
+			apps = execute_query_all(conn, """
+				SELECT a.id, u.username, a.title, a.pen_name, a.contract_type, a.status, a.reject_reason, a.created_at, 
+					   r.username as reviewer_name
+				FROM applications a 
+				JOIN users u ON a.author_id=u.id 
+				LEFT JOIN users r ON a.reviewer_id=r.id 
+				ORDER BY a.id DESC
+			""")
 	if request.method == "POST":
 		action = request.form.get("action")
 		with get_db() as conn:
@@ -295,7 +331,10 @@ def admin_apps():
 				app_id = request.form.get("app_id")
 				buyout_amount = request.form.get("buyout_amount")
 				if app_id:
-					row = conn.execute("SELECT author_id, title, pen_name, contract_type FROM applications WHERE id=?", (app_id,)).fetchone()
+					if POSTGRES_AVAILABLE and IS_VERCEL:
+						row = execute_query(conn, "SELECT author_id, title, pen_name, contract_type FROM applications WHERE id = %s", (app_id,))
+					else:
+						row = execute_query(conn, "SELECT author_id, title, pen_name, contract_type FROM applications WHERE id=?", (app_id,))
 					if row:
 						# 获取当前管理员ID
 						current_admin_id = session.get('user_id')
@@ -304,75 +343,72 @@ def admin_apps():
 								flash("买断需要填写买断稿费", "error")
 								return redirect(url_for("admin_apps"))
 							if POSTGRES_AVAILABLE and IS_VERCEL:
-								with conn.cursor() as cur:
-									cur.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=%s WHERE id=%s", (current_admin_id, app_id))
-									cur.execute(
-										"INSERT INTO books (title, author_id, pen_name, contract_type, buyout_amount) VALUES (%s, %s, %s, '买断', %s)",
-										(row[1], row[0], row[2], buyout_amount),
-									)
-									cur.execute(
-										"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
-										(row[0], f"您的签约申请已通过（买断），《{row[1]}》买断稿费：¥{buyout_amount}"),
-									)
+								execute_update(conn, "UPDATE applications SET status='approved', processed_at=NOW(), reviewer_id=%s WHERE id=%s", (current_admin_id, app_id))
+								execute_update(conn,
+									"INSERT INTO books (title, author_id, pen_name, contract_type, buyout_amount) VALUES (%s, %s, %s, '买断', %s)",
+									(row[1], row[0], row[2], buyout_amount),
+								)
+								execute_update(conn,
+									"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
+									(row[0], f"您的签约申请已通过（买断），《{row[1]}》买断稿费：¥{buyout_amount}"),
+								)
 							else:
-								conn.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=? WHERE id=?", (current_admin_id, app_id))
-								conn.execute(
+								execute_update(conn, "UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=? WHERE id=?", (current_admin_id, app_id))
+								execute_update(conn,
 									"INSERT INTO books (title, author_id, pen_name, contract_type, buyout_amount) VALUES (?, ?, ?, '买断', ?)",
 									(row[1], row[0], row[2], buyout_amount),
 								)
-								conn.execute(
+								execute_update(conn,
 									"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
 									(row[0], f"您的签约申请已通过（买断），《{row[1]}》买断稿费：¥{buyout_amount}"),
 								)
-							conn.commit()
 							flash("已同意买断并通知作者", "success")
 						else:
 							if POSTGRES_AVAILABLE and IS_VERCEL:
-								with conn.cursor() as cur:
-									cur.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=%s WHERE id=%s", (current_admin_id, app_id))
-									cur.execute(
-										"INSERT INTO books (title, author_id, pen_name, contract_type) VALUES (%s, %s, %s, '保底')",
-										(row[1], row[0], row[2]),
-									)
-									cur.execute(
-										"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
-										(row[0], f"您的签约申请已通过（保底），《{row[1]}》后续按月设置稿费"),
-									)
+								execute_update(conn, "UPDATE applications SET status='approved', processed_at=NOW(), reviewer_id=%s WHERE id=%s", (current_admin_id, app_id))
+								execute_update(conn,
+									"INSERT INTO books (title, author_id, pen_name, contract_type) VALUES (%s, %s, %s, '保底')",
+									(row[1], row[0], row[2]),
+								)
+								execute_update(conn,
+									"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
+									(row[0], f"您的签约申请已通过（保底），《{row[1]}》后续按月设置稿费"),
+								)
 							else:
-								conn.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=? WHERE id=?", (current_admin_id, app_id))
-								conn.execute(
+								execute_update(conn, "UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=? WHERE id=?", (current_admin_id, app_id))
+								execute_update(conn,
 									"INSERT INTO books (title, author_id, pen_name, contract_type) VALUES (?, ?, ?, '保底')",
 									(row[1], row[0], row[2]),
 								)
-								conn.execute(
+								execute_update(conn,
 									"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
 									(row[0], f"您的签约申请已通过（保底），《{row[1]}》后续按月设置稿费"),
 								)
-							conn.commit()
 							flash("已同意保底并通知作者", "success")
 			elif action == "reject_app":
 				app_id = request.form.get("app_id")
 				reason = request.form.get("reason", "").strip() or "未提供原因"
 				if app_id:
-					row = conn.execute("SELECT author_id, title FROM applications WHERE id=?", (app_id,)).fetchone()
+					if POSTGRES_AVAILABLE and IS_VERCEL:
+						row = execute_query(conn, "SELECT author_id, title FROM applications WHERE id = %s", (app_id,))
+					else:
+						row = execute_query(conn, "SELECT author_id, title FROM applications WHERE id=?", (app_id,))
 					# 获取当前管理员ID
 					current_admin_id = session.get('user_id')
 					if POSTGRES_AVAILABLE and IS_VERCEL:
-						with conn.cursor() as cur:
-							cur.execute("UPDATE applications SET status='rejected', reject_reason=%s, processed_at=datetime('now'), reviewer_id=%s WHERE id=%s", (reason, current_admin_id, app_id))
-							if row:
-								cur.execute(
-									"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
-									(row[0], f"您的签约申请被拒绝：《{row[1]}》，原因：{reason}"),
-								)
-					else:
-						conn.execute("UPDATE applications SET status='rejected', reject_reason=?, processed_at=datetime('now'), reviewer_id=? WHERE id=?", (reason, current_admin_id, app_id))
+						execute_update(conn, "UPDATE applications SET status='rejected', reject_reason=%s, processed_at=NOW(), reviewer_id=%s WHERE id=%s", (reason, current_admin_id, app_id))
 						if row:
-							conn.execute(
+							execute_update(conn,
+								"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
+								(row[0], f"您的签约申请被拒绝：《{row[1]}》，原因：{reason}"),
+							)
+					else:
+						execute_update(conn, "UPDATE applications SET status='rejected', reject_reason=?, processed_at=datetime('now'), reviewer_id=? WHERE id=?", (reason, current_admin_id, app_id))
+						if row:
+							execute_update(conn,
 								"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
 								(row[0], f"您的签约申请被拒绝：《{row[1]}》，原因：{reason}"),
 							)
-					conn.commit()
 					flash("已拒绝并通知作者", "success")
 		return redirect(url_for("admin_apps"))
 	return render_template("admin_apps.html", apps=apps)
@@ -432,9 +468,9 @@ def admin_royalties():
 @login_required(role="admin")
 def admin_books():
 	with get_db() as conn:
-		books = conn.execute(
+		books = execute_query_all(conn,
 			"SELECT b.id, b.title, u.username, b.contract_type, b.buyout_amount, b.created_at FROM books b JOIN users u ON b.author_id=u.id ORDER BY u.username ASC, b.id DESC"
-		).fetchall()
+		)
 	return render_template("admin_books.html", books=books)
 
 
