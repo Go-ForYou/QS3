@@ -8,7 +8,13 @@
 </head>
 <body class="theme-{{ session.get('role','guest') }}">
 	<nav class="nav top">
-		<div class="brand">{% if session.get('role')=='admin' %}管理后台{% else %}作者后台{% endif %}</div>
+		<div class="brand">
+			{% if session.get('username') %}
+				{% if session.get('role')=='admin' %}管理后台{% else %}作者后台{% endif %}
+			{% else %}
+				登录界面
+			{% endif %}
+		</div>
 		<div class="links">
 			{% if session.get('username') %}
 				<span>你好，{{ session.get('username') }}</span>

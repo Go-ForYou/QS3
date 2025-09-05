@@ -1,5 +1,16 @@
 {% extends 'base.html' %}
 {% block content %}
+<style>
+.reviewer-info {
+	color: #666;
+	font-size: 0.9em;
+	margin-top: 4px;
+	padding: 4px 8px;
+	background: #f8f9fa;
+	border-radius: 4px;
+	border-left: 3px solid #007bff;
+}
+</style>
 <div class="layout">
 	<aside class="sidenav blue">
 		<a href="{{ url_for('admin_books') }}">已签约书籍</a>
@@ -14,6 +25,9 @@
 					<div>#{{ a[0] }} 作者：{{ a[1] }} —— 《{{ a[2] }}》/{{ a[3] }}/{{ a[4] }}</div>
 					<div>状态：{{ a[5] }}</div>
 					<div>提交：{{ a[7] }}</div>
+					{% if a[8] %}
+					<div class="reviewer-info">审核者：{{ a[8] }}</div>
+					{% endif %}
 					{% if a[5]=='pending' %}
 						<form method="post" class="inline">
 							<input type="hidden" name="action" value="approve_app">

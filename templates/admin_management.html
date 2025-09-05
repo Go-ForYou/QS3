@@ -1,0 +1,496 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="admin-management-container">
+	<div class="admin-management-card">
+		<div class="admin-header">
+			<h1>管理员账号管理</h1>
+			{% if not session.get('admin_verified') %}
+			<p>需要密钥才能访问此功能</p>
+			{% else %}
+			<p>欢迎使用管理员账号管理功能</p>
+			{% endif %}
+		</div>
+		
+		<!-- 返回登录按钮 -->
+		<div class="header-actions">
+			<a href="{{ url_for('login') }}" class="btn-back">
+				<span>←</span> 返回登录
+			</a>
+			{% if session.get('admin_verified') %}
+			<form method="post" action="{{ url_for('admin_logout') }}" style="display: inline;">
+				<button type="submit" class="btn-logout">
+					<span>🔓</span> 退出验证
+				</button>
+			</form>
+			{% endif %}
+		</div>
+		
+		<!-- 密钥验证表单 -->
+		{% if not session.get('admin_verified') %}
+		<form method="post" action="{{ url_for('admin_management') }}" class="key-form">
+			<div class="form-group">
+				<label for="access_key" class="form-label">访问密钥</label>
+				<input 
+					type="password" 
+					id="access_key" 
+					name="access_key" 
+					class="form-input" 
+					placeholder="请输入访问密钥"
+					required
+				>
+			</div>
+			<button type="submit" class="login-button">
+				<span class="button-text">验证密钥</span>
+				<span class="button-icon">🔑</span>
+			</button>
+		</form>
+		{% endif %}
+		
+		<!-- 管理员功能区域 -->
+		{% if session.get('admin_verified') %}
+		<div class="admin-functions">
+			<div class="function-tabs">
+				<button class="tab-button active" onclick="switchTab('register')">注册管理员</button>
+				<button class="tab-button" onclick="switchTab('manage')">管理账号</button>
+			</div>
+			
+			<!-- 注册新管理员 -->
+			<div id="register-tab" class="tab-content active">
+				<h3>注册新管理员</h3>
+				<form method="post" action="{{ url_for('admin_register') }}" class="admin-form">
+					<div class="form-group">
+						<label for="username" class="form-label">用户名</label>
+						<input 
+							type="text" 
+							id="username" 
+							name="username" 
+							class="form-input" 
+							placeholder="请输入用户名"
+							required
+						>
+					</div>
+					
+					<div class="form-group">
+						<label for="password" class="form-label">密码</label>
+						<input 
+							type="password" 
+							id="password" 
+							name="password" 
+							class="form-input" 
+							placeholder="请输入密码"
+							required
+						>
+					</div>
+					
+					<button type="submit" class="login-button">
+						<span class="button-text">注册管理员</span>
+						<span class="button-icon">✓</span>
+					</button>
+				</form>
+				
+				<!-- 注册成功后的提示 -->
+				<div class="success-tip">
+					<p>💡 <strong>提示：</strong>注册成功后，新管理员可以使用用户名和密码登录系统</p>
+					<a href="{{ url_for('login') }}" class="btn-login">
+						<span>🔑</span> 立即登录
+					</a>
+				</div>
+			</div>
+			
+			<!-- 管理现有账号 -->
+			<div id="manage-tab" class="tab-content">
+				<h3>管理现有管理员账号</h3>
+				<div class="admin-list">
+					{% for admin in admins %}
+					<div class="admin-item">
+						<div class="admin-info">
+							<span class="admin-username">{{ admin.username }}</span>
+							<span class="admin-id">ID: {{ admin.id }}</span>
+						</div>
+						<div class="admin-actions">
+							<button class="btn-danger" onclick="confirmDelete('{{ admin.id }}', '{{ admin.username }}')">
+								删除
+							</button>
+						</div>
+					</div>
+					{% endfor %}
+				</div>
+			</div>
+		</div>
+		{% endif %}
+	</div>
+</div>
+
+<!-- 删除确认模态框 -->
+<div id="deleteModal" class="modal">
+	<div class="modal-content">
+		<h3>确认删除管理员账号</h3>
+		<p>您即将删除管理员账号：<strong id="deleteUsername"></strong></p>
+		<p class="warning">⚠️ 此操作不可撤销！</p>
+		
+		<form method="post" action="{{ url_for('admin_delete') }}" id="deleteForm">
+			<input type="hidden" name="admin_id" id="deleteAdminId">
+			<div class="form-group">
+				<label for="delete_key" class="form-label">删除密钥</label>
+				<input 
+					type="password" 
+					id="delete_key" 
+					name="delete_key" 
+					class="form-input" 
+					placeholder="请输入删除密钥"
+					required
+				>
+			</div>
+			<div class="modal-actions">
+				<button type="button" class="btn-cancel" onclick="closeModal()">取消</button>
+				<button type="submit" class="btn-danger">确认删除</button>
+			</div>
+		</form>
+	</div>
+</div>
+
+<style>
+.admin-management-container {
+	min-height: calc(100vh - 80px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	padding: 20px;
+}
+
+.admin-management-card {
+	background: white;
+	border-radius: 16px;
+	box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+	padding: 40px;
+	width: 100%;
+	max-width: 600px;
+	position: relative;
+	overflow: hidden;
+}
+
+.admin-management-card::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 4px;
+	background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+.admin-header {
+	text-align: center;
+	margin-bottom: 32px;
+}
+
+.admin-header h1 {
+	font-size: 28px;
+	font-weight: 700;
+	color: #1f2937;
+	margin: 0 0 8px 0;
+}
+
+.admin-header p {
+	color: #6b7280;
+	margin: 0;
+}
+
+.header-actions {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 24px;
+}
+
+.btn-back {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: #f3f4f6;
+	color: #374151;
+	padding: 10px 16px;
+	border-radius: 8px;
+	text-decoration: none;
+	font-weight: 600;
+	transition: all 0.2s ease;
+	border: 1px solid #d1d5db;
+}
+
+.btn-back:hover {
+	background: #e5e7eb;
+	color: #1f2937;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.btn-logout {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: #fef2f2;
+	color: #dc2626;
+	padding: 10px 16px;
+	border-radius: 8px;
+	text-decoration: none;
+	font-weight: 600;
+	transition: all 0.2s ease;
+	border: 1px solid #fecaca;
+	cursor: pointer;
+	font-size: 14px;
+}
+
+.btn-logout:hover {
+	background: #fee2e2;
+	color: #b91c1c;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 8px rgba(220, 38, 38, 0.1);
+}
+
+.key-form {
+	margin-bottom: 32px;
+}
+
+.admin-functions {
+	margin-top: 32px;
+	border-top: 1px solid #e5e7eb;
+	padding-top: 32px;
+}
+
+.function-tabs {
+	display: flex;
+	margin-bottom: 24px;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.tab-button {
+	background: none;
+	border: none;
+	padding: 12px 24px;
+	cursor: pointer;
+	font-size: 16px;
+	font-weight: 600;
+	color: #6b7280;
+	border-bottom: 2px solid transparent;
+	transition: all 0.2s ease;
+}
+
+.tab-button.active {
+	color: #667eea;
+	border-bottom-color: #667eea;
+}
+
+.tab-button:hover {
+	color: #374151;
+}
+
+.tab-content {
+	display: none;
+}
+
+.tab-content.active {
+	display: block;
+}
+
+.admin-form {
+	margin-top: 24px;
+}
+
+.success-tip {
+	margin-top: 24px;
+	padding: 16px;
+	background: #f0f9ff;
+	border: 1px solid #0ea5e9;
+	border-radius: 8px;
+	text-align: center;
+}
+
+.success-tip p {
+	margin: 0 0 12px 0;
+	color: #0c4a6e;
+	font-size: 14px;
+}
+
+.btn-login {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: #0ea5e9;
+	color: white;
+	padding: 10px 20px;
+	border-radius: 6px;
+	text-decoration: none;
+	font-weight: 600;
+	transition: all 0.2s ease;
+}
+
+.btn-login:hover {
+	background: #0284c7;
+	transform: translateY(-1px);
+	box-shadow: 0 4px 8px rgba(14, 165, 233, 0.3);
+}
+
+.admin-list {
+	margin-top: 24px;
+}
+
+.admin-item {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 16px;
+	background: #f9fafb;
+	border-radius: 8px;
+	margin-bottom: 12px;
+}
+
+.admin-info {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.admin-username {
+	font-weight: 600;
+	color: #1f2937;
+}
+
+.admin-id {
+	font-size: 14px;
+	color: #6b7280;
+}
+
+.admin-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.btn-danger {
+	background: #ef4444;
+	color: white;
+	border: none;
+	padding: 8px 16px;
+	border-radius: 6px;
+	font-size: 14px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+	background: #dc2626;
+	transform: translateY(-1px);
+}
+
+/* 模态框样式 */
+.modal {
+	display: none;
+	position: fixed;
+	z-index: 1000;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+	background-color: white;
+	margin: 15% auto;
+	padding: 24px;
+	border-radius: 12px;
+	width: 90%;
+	max-width: 400px;
+	box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content h3 {
+	margin: 0 0 16px 0;
+	color: #1f2937;
+}
+
+.modal-content p {
+	margin: 8px 0;
+	color: #6b7280;
+}
+
+.warning {
+	color: #ef4444 !important;
+	font-weight: 600;
+}
+
+.modal-actions {
+	display: flex;
+	gap: 12px;
+	margin-top: 24px;
+	justify-content: flex-end;
+}
+
+.btn-cancel {
+	background: #6b7280;
+	color: white;
+	border: none;
+	padding: 10px 20px;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.btn-cancel:hover {
+	background: #4b5563;
+}
+
+@media (max-width: 480px) {
+	.admin-management-container {
+		padding: 16px;
+	}
+	
+	.admin-management-card {
+		padding: 24px;
+	}
+	
+	.admin-header h1 {
+		font-size: 24px;
+	}
+}
+</style>
+
+<script>
+function switchTab(tabName) {
+	// 隐藏所有标签内容
+	document.querySelectorAll('.tab-content').forEach(tab => {
+		tab.classList.remove('active');
+	});
+	
+	// 移除所有按钮的激活状态
+	document.querySelectorAll('.tab-button').forEach(btn => {
+		btn.classList.remove('active');
+	});
+	
+	// 显示选中的标签内容
+	document.getElementById(tabName + '-tab').classList.add('active');
+	
+	// 激活选中的按钮
+	event.target.classList.add('active');
+}
+
+function confirmDelete(adminId, username) {
+	document.getElementById('deleteAdminId').value = adminId;
+	document.getElementById('deleteUsername').textContent = username;
+	document.getElementById('deleteModal').style.display = 'block';
+}
+
+function closeModal() {
+	document.getElementById('deleteModal').style.display = 'none';
+	document.getElementById('delete_key').value = '';
+}
+
+// 点击模态框外部关闭
+window.onclick = function(event) {
+	const modal = document.getElementById('deleteModal');
+	if (event.target == modal) {
+		closeModal();
+	}
+}
+</script>
+{% endblock %}

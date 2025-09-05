@@ -7,9 +7,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from functools import wraps
 
-from db import get_db, init_db
+# 使用混合数据库配置（本地SQLite，生产PostgreSQL）
+from db_hybrid import get_db, init_db, seed_admin_user, add_reviewer_field, POSTGRES_AVAILABLE
 
 load_dotenv()
+
+# 检测是否在Vercel环境中运行
+IS_VERCEL = os.getenv("VERCEL") is not None
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
@@ -22,6 +26,10 @@ def ensure_db_once():
 	if not _initialized:
 		try:
 			init_db()
+			# 创建默认管理员用户
+			seed_admin_user()
+			# 添加审核者字段（如果不存在）
+			add_reviewer_field()
 			_initialized = True
 		except Exception as e:
 			app.logger.error(f"Database initialization failed: {e}")
@@ -96,21 +104,45 @@ def register():
 	if request.method == "POST":
 		username = request.form.get("username", "").strip()
 		password = request.form.get("password", "")
+		
 		if not username or not password:
 			flash("请输入用户名和密码", "error")
 			return render_template("register.html")
+		
 		with get_db() as conn:
-			exists = conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+			if conn is None:
+				flash("数据库连接失败", "error")
+				return render_template("register.html")
+			
+			# 检查用户名是否已存在
+			if POSTGRES_AVAILABLE and IS_VERCEL:
+				with conn.cursor() as cur:
+					cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+					exists = cur.fetchone()
+			else:
+				exists = conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+			
 			if exists:
 				flash("用户名已存在", "error")
 				return render_template("register.html")
-			conn.execute(
-				"INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-				(username, generate_password_hash(password), "author"),
-			)
-			conn.commit()
+			
+			# 创建作者用户
+			if POSTGRES_AVAILABLE and IS_VERCEL:
+				with conn.cursor() as cur:
+					cur.execute(
+						"INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
+						(username, generate_password_hash(password), "author")
+					)
+			else:
+				conn.execute(
+					"INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+					(username, generate_password_hash(password), "author")
+				)
+				conn.commit()
+			
 			flash("注册成功，请登录", "success")
 			return redirect(url_for("login"))
+	
 	return render_template("register.html")
 
 
@@ -236,9 +268,26 @@ def admin_delete_book():
 @login_required(role="admin")
 def admin_apps():
 	with get_db() as conn:
-		apps = conn.execute(
-			"SELECT a.id, u.username, a.title, a.pen_name, a.contract_type, a.status, a.reject_reason, a.created_at FROM applications a JOIN users u ON a.author_id=u.id ORDER BY a.id DESC"
-		).fetchall()
+		if POSTGRES_AVAILABLE and IS_VERCEL:
+			with conn.cursor() as cur:
+				cur.execute("""
+					SELECT a.id, u.username, a.title, a.pen_name, a.contract_type, a.status, a.reject_reason, a.created_at, 
+						   r.username as reviewer_name
+					FROM applications a 
+					JOIN users u ON a.author_id=u.id 
+					LEFT JOIN users r ON a.reviewer_id=r.id 
+					ORDER BY a.id DESC
+				""")
+				apps = cur.fetchall()
+		else:
+			apps = conn.execute("""
+				SELECT a.id, u.username, a.title, a.pen_name, a.contract_type, a.status, a.reject_reason, a.created_at, 
+					   r.username as reviewer_name
+				FROM applications a 
+				JOIN users u ON a.author_id=u.id 
+				LEFT JOIN users r ON a.reviewer_id=r.id 
+				ORDER BY a.id DESC
+			""").fetchall()
 	if request.method == "POST":
 		action = request.form.get("action")
 		with get_db() as conn:
@@ -248,31 +297,57 @@ def admin_apps():
 				if app_id:
 					row = conn.execute("SELECT author_id, title, pen_name, contract_type FROM applications WHERE id=?", (app_id,)).fetchone()
 					if row:
+						# 获取当前管理员ID
+						current_admin_id = session.get('user_id')
 						if row[3] == '买断':
 							if not buyout_amount:
 								flash("买断需要填写买断稿费", "error")
 								return redirect(url_for("admin_apps"))
-							conn.execute("UPDATE applications SET status='approved', processed_at=datetime('now') WHERE id=?", (app_id,))
-							conn.execute(
-								"INSERT INTO books (title, author_id, pen_name, contract_type, buyout_amount) VALUES (?, ?, ?, '买断', ?)",
-								(row[1], row[0], row[2], buyout_amount),
-							)
-							conn.execute(
-								"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
-								(row[0], f"您的签约申请已通过（买断），《{row[1]}》买断稿费：¥{buyout_amount}"),
-							)
+							if POSTGRES_AVAILABLE and IS_VERCEL:
+								with conn.cursor() as cur:
+									cur.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=%s WHERE id=%s", (current_admin_id, app_id))
+									cur.execute(
+										"INSERT INTO books (title, author_id, pen_name, contract_type, buyout_amount) VALUES (%s, %s, %s, '买断', %s)",
+										(row[1], row[0], row[2], buyout_amount),
+									)
+									cur.execute(
+										"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
+										(row[0], f"您的签约申请已通过（买断），《{row[1]}》买断稿费：¥{buyout_amount}"),
+									)
+							else:
+								conn.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=? WHERE id=?", (current_admin_id, app_id))
+								conn.execute(
+									"INSERT INTO books (title, author_id, pen_name, contract_type, buyout_amount) VALUES (?, ?, ?, '买断', ?)",
+									(row[1], row[0], row[2], buyout_amount),
+								)
+								conn.execute(
+									"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
+									(row[0], f"您的签约申请已通过（买断），《{row[1]}》买断稿费：¥{buyout_amount}"),
+								)
 							conn.commit()
 							flash("已同意买断并通知作者", "success")
 						else:
-							conn.execute("UPDATE applications SET status='approved', processed_at=datetime('now') WHERE id=?", (app_id,))
-							conn.execute(
-								"INSERT INTO books (title, author_id, pen_name, contract_type) VALUES (?, ?, ?, '保底')",
-								(row[1], row[0], row[2]),
-							)
-							conn.execute(
-								"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
-								(row[0], f"您的签约申请已通过（保底），《{row[1]}》后续按月设置稿费"),
-							)
+							if POSTGRES_AVAILABLE and IS_VERCEL:
+								with conn.cursor() as cur:
+									cur.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=%s WHERE id=%s", (current_admin_id, app_id))
+									cur.execute(
+										"INSERT INTO books (title, author_id, pen_name, contract_type) VALUES (%s, %s, %s, '保底')",
+										(row[1], row[0], row[2]),
+									)
+									cur.execute(
+										"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
+										(row[0], f"您的签约申请已通过（保底），《{row[1]}》后续按月设置稿费"),
+									)
+							else:
+								conn.execute("UPDATE applications SET status='approved', processed_at=datetime('now'), reviewer_id=? WHERE id=?", (current_admin_id, app_id))
+								conn.execute(
+									"INSERT INTO books (title, author_id, pen_name, contract_type) VALUES (?, ?, ?, '保底')",
+									(row[1], row[0], row[2]),
+								)
+								conn.execute(
+									"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
+									(row[0], f"您的签约申请已通过（保底），《{row[1]}》后续按月设置稿费"),
+								)
 							conn.commit()
 							flash("已同意保底并通知作者", "success")
 			elif action == "reject_app":
@@ -280,12 +355,23 @@ def admin_apps():
 				reason = request.form.get("reason", "").strip() or "未提供原因"
 				if app_id:
 					row = conn.execute("SELECT author_id, title FROM applications WHERE id=?", (app_id,)).fetchone()
-					conn.execute("UPDATE applications SET status='rejected', reject_reason=?, processed_at=datetime('now') WHERE id=?", (reason, app_id))
-					if row:
-						conn.execute(
-							"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
-							(row[0], f"您的签约申请被拒绝：《{row[1]}》，原因：{reason}"),
-						)
+					# 获取当前管理员ID
+					current_admin_id = session.get('user_id')
+					if POSTGRES_AVAILABLE and IS_VERCEL:
+						with conn.cursor() as cur:
+							cur.execute("UPDATE applications SET status='rejected', reject_reason=%s, processed_at=datetime('now'), reviewer_id=%s WHERE id=%s", (reason, current_admin_id, app_id))
+							if row:
+								cur.execute(
+									"INSERT INTO notifications (recipient_id, message) VALUES (%s, %s)",
+									(row[0], f"您的签约申请被拒绝：《{row[1]}》，原因：{reason}"),
+								)
+					else:
+						conn.execute("UPDATE applications SET status='rejected', reject_reason=?, processed_at=datetime('now'), reviewer_id=? WHERE id=?", (reason, current_admin_id, app_id))
+						if row:
+							conn.execute(
+								"INSERT INTO notifications (recipient_id, message) VALUES (?, ?)",
+								(row[0], f"您的签约申请被拒绝：《{row[1]}》，原因：{reason}"),
+							)
 					conn.commit()
 					flash("已拒绝并通知作者", "success")
 		return redirect(url_for("admin_apps"))
@@ -357,6 +443,205 @@ def admin_books():
 def admin_redirect():
 	return redirect(url_for("admin_apps"))
 
+@app.route("/admin/users")
+@login_required(role="admin")
+def admin_users():
+	with get_db() as conn:
+		if conn is None:
+			flash("数据库连接失败", "error")
+			return redirect(url_for("admin_apps"))
+		
+		if POSTGRES_AVAILABLE and IS_VERCEL:
+			with conn.cursor() as cur:
+				cur.execute("SELECT id, username, role, created_at FROM users ORDER BY id DESC")
+				users = cur.fetchall()
+		else:
+			users = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY id DESC").fetchall()
+	
+	return render_template("admin_users.html", users=users)
+
+@app.route("/admin/users/delete", methods=["POST"])
+@login_required(role="admin")
+def admin_delete_user():
+	user_id = request.form.get("user_id")
+	
+	# 不能删除自己
+	if int(user_id) == session.get("user_id"):
+		flash("不能删除自己的账号", "error")
+		return redirect(url_for("admin_users"))
+	
+	with get_db() as conn:
+		if conn is None:
+			flash("数据库连接失败", "error")
+			return redirect(url_for("admin_users"))
+		
+		if POSTGRES_AVAILABLE and IS_VERCEL:
+			with conn.cursor() as cur:
+				# 检查用户是否存在且为管理员
+				cur.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+				user = cur.fetchone()
+				
+				if not user:
+					flash("用户不存在", "error")
+					return redirect(url_for("admin_users"))
+				
+				if user[0] != 'admin':
+					flash("只能删除管理员账号", "error")
+					return redirect(url_for("admin_users"))
+				
+				# 删除用户
+				cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+				flash("用户删除成功", "success")
+		else:
+			# 检查用户是否存在且为管理员
+			user = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+			
+			if not user:
+				flash("用户不存在", "error")
+				return redirect(url_for("admin_users"))
+			
+			if user[0] != 'admin':
+				flash("只能删除管理员账号", "error")
+				return redirect(url_for("admin_users"))
+			
+			# 删除用户
+			conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+			conn.commit()
+			flash("用户删除成功", "success")
+	
+	return redirect(url_for("admin_users"))
+
+# 管理员管理页面（需要密钥访问）
+@app.route("/admin/management", methods=["GET", "POST"])
+def admin_management():
+	if request.method == "POST":
+		access_key = request.form.get("access_key", "").strip()
+		if access_key == "kaqia111":
+			session["admin_verified"] = True
+			flash("密钥验证成功", "success")
+		else:
+			flash("密钥错误", "error")
+	
+	# 获取所有管理员列表
+	admins = []
+	if session.get("admin_verified"):
+		with get_db() as conn:
+			if conn:
+				if POSTGRES_AVAILABLE and IS_VERCEL:
+					with conn.cursor() as cur:
+						cur.execute("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id")
+						admins = cur.fetchall()
+				else:
+					admins = conn.execute("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id").fetchall()
+	
+	return render_template("admin_management.html", admins=admins)
+
+# 注册新管理员（需要密钥验证）
+@app.route("/admin/register", methods=["POST"])
+def admin_register():
+	if not session.get("admin_verified"):
+		flash("需要先验证访问密钥", "error")
+		return redirect(url_for("admin_management"))
+	
+	username = request.form.get("username", "").strip()
+	password = request.form.get("password", "")
+	
+	if not username or not password:
+		flash("请输入用户名和密码", "error")
+		return redirect(url_for("admin_management"))
+	
+	with get_db() as conn:
+		if conn is None:
+			flash("数据库连接失败", "error")
+			return redirect(url_for("admin_management"))
+		
+		# 检查用户名是否已存在
+		if POSTGRES_AVAILABLE and IS_VERCEL:
+			with conn.cursor() as cur:
+				cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+				exists = cur.fetchone()
+		else:
+			exists = conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone()
+		
+		if exists:
+			flash("用户名已存在", "error")
+			return redirect(url_for("admin_management"))
+		
+		# 创建管理员用户
+		if POSTGRES_AVAILABLE and IS_VERCEL:
+			with conn.cursor() as cur:
+				cur.execute(
+					"INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)",
+					(username, generate_password_hash(password), "admin")
+				)
+		else:
+			conn.execute(
+				"INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+				(username, generate_password_hash(password), "admin")
+			)
+			conn.commit()
+		
+		flash("管理员账号创建成功", "success")
+	
+	return redirect(url_for("admin_management"))
+
+# 删除管理员（需要删除密钥）
+@app.route("/admin/delete", methods=["POST"])
+def admin_delete():
+	if not session.get("admin_verified"):
+		flash("需要先验证访问密钥", "error")
+		return redirect(url_for("admin_management"))
+	
+	delete_key = request.form.get("delete_key", "").strip()
+	admin_id = request.form.get("admin_id")
+	
+	if delete_key != "kaqia222":
+		flash("删除密钥错误", "error")
+		return redirect(url_for("admin_management"))
+	
+	if not admin_id:
+		flash("无效的管理员ID", "error")
+		return redirect(url_for("admin_management"))
+	
+	with get_db() as conn:
+		if conn is None:
+			flash("数据库连接失败", "error")
+			return redirect(url_for("admin_management"))
+		
+		# 检查管理员是否存在
+		if POSTGRES_AVAILABLE and IS_VERCEL:
+			with conn.cursor() as cur:
+				cur.execute("SELECT username FROM users WHERE id = %s AND role = 'admin'", (admin_id,))
+				admin = cur.fetchone()
+				
+				if not admin:
+					flash("管理员不存在", "error")
+					return redirect(url_for("admin_management"))
+				
+				# 删除管理员
+				cur.execute("DELETE FROM users WHERE id = %s", (admin_id,))
+				flash(f"管理员 {admin[0]} 删除成功", "success")
+		else:
+			admin = conn.execute("SELECT username FROM users WHERE id = ? AND role = 'admin'", (admin_id,)).fetchone()
+			
+			if not admin:
+				flash("管理员不存在", "error")
+				return redirect(url_for("admin_management"))
+			
+			# 删除管理员
+			conn.execute("DELETE FROM users WHERE id = ?", (admin_id,))
+			conn.commit()
+			flash(f"管理员 {admin[0]} 删除成功", "success")
+	
+	return redirect(url_for("admin_management"))
+
+# 退出管理员验证
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+	session.pop("admin_verified", None)
+	flash("已退出管理员验证", "info")
+	return redirect(url_for("admin_management"))
+
 
 # 静态文件路由 - 确保在Vercel上正确工作
 @app.route("/static/<path:filename>")
@@ -367,6 +652,15 @@ def static_files(filename):
 @app.route("/test-static")
 def test_static():
 	return send_from_directory('.', 'test_static.html')
+
+# Vercel环境检测路由
+@app.route("/vercel-info")
+def vercel_info():
+	return {
+		"is_vercel": IS_VERCEL,
+		"environment": os.getenv("VERCEL_ENV", "unknown"),
+		"status": "ok"
+	}, 200
 
 # 健康检查路由
 @app.route("/health")

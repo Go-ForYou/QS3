@@ -9,6 +9,9 @@
 			<li>
 				#{{ a[0] }} 作者：{{ a[1] }} —— 《{{ a[2] }}》/{{ a[3] }}/{{ a[4] }}
 				<span>状态：{{ a[5] }}</span>
+				{% if a[8] %}
+				<span style="color: #666; font-size: 0.9em;">（审核者：{{ a[8] }}）</span>
+				{% endif %}
 				{% if a[5]=='pending' %}
 					<form method="post" style="display:inline">
 						<input type="hidden" name="action" value="approve_app">
